@@ -161,15 +161,13 @@ Puppet::Type.newtype(:concat_build) do
     end
 
     def insync?(is)
+      return false unless File.exists?(@resource[:target])
+
       # Build the temporary file, and then diff it against the actual one
       provider.build_file(false)
-      diffs = diff(@resource[:target],"/var/lib/puppet/concat/output/#{@resource[:name]}.out") 
-      if diffs != "" then
-        puts diffs
-        return false
-      else
-        return true
-      end
+      diffs = diff(@resource[:target],"/var/lib/puppet/concat/output/#{@resource[:name]}.out")
+      puts diffs unless (result = diffs.empty?)
+      result
     end
 
     def sync
