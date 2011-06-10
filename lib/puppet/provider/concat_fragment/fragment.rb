@@ -23,8 +23,7 @@ Puppet::Type.type(:concat_fragment).provide :concat_fragment do
 
   def create
     begin
-      group = @resource[:name].split('+').first
-      fragment = @resource[:name].split('+')[1..-1].join('+')
+      group, fragment = @resource[:name].split('+',2)
 
       fragments_dir = File.join('/var/lib/puppet/concat/fragments',group)
 
