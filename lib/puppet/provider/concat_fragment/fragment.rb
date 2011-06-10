@@ -34,9 +34,7 @@ Puppet::Type.type(:concat_fragment).provide :concat_fragment do
       end
 
       FileUtils.mkdir_p(fragments_dir)
-      f = File.new(File.join(fragments_dir,fragment), "w")
-      f.puts @resource[:content]
-      f.close
+      File.open(File.join(fragments_dir,fragment), "w"){|f| f << @resource[:content] }
     rescue Exception => e
       fail Puppet::Error, e
     end
