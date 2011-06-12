@@ -16,51 +16,51 @@
 # You should have received a copy of the GNU General Public License along with
 # this program.  If not, see <http://www.gnu.org/licenses/>.
 #
-Puppet::Type.type(:concat_build ).provide :concat_build do
+Puppet::Type.type(:concat_build ).provide(:concat_build) do
   require 'fileutils'
 
   desc "concat_build provider"
 
   def build_file(build = false)
-    if File.directory?("/var/lib/puppet/concat/fragments/#{@resource[:name]}") and not build then
+    fragments_dir = "/var/lib/puppet/concat/fragments/#{@resource[:name]}"
+    if File.directory?(fragments_dir) && !build
       # Just diff'ing - build the file but don't move it yet
       begin
         FileUtils.mkdir_p("/var/lib/puppet/concat/output")
 
         f = File.open("/var/lib/puppet/concat/output/#{@resource[:name]}.out", "w+")
-        input_lines = Array.new
-        Dir.chdir("/var/lib/puppet/concat/fragments/#{@resource[:name]}") do
-          Array(@resource[:order]).flatten.each do |pattern|
-             Dir.glob(pattern).sort_by{ |k| human_sort(k) }.each do |file|
+        input_lines = []
+        Dir.chdir(fragments_dir) do
+          [*@resource[:order]].each do |pattern|
+            Dir.glob(pattern).sort_by{ |k| human_sort(k) }.each do |file|
 
               prev_line = nil
               File.open(file).each do |line|
 
-                if @resource.squeeze_blank? and line =~ /^\s*$/ then
-                  if prev_line == :whitespace then
+                if @resource.squeeze_blank? && line =~ /^\s*$/
+                  if prev_line == :whitespace
                     next
                   else
                      prev_line = :whitespace
                   end
                 end
 
-                out = clean_line(line)
-                if not out.nil? then
-		  # This is a bit hackish, but it would be nice to keep as much
-		  # of the file out of memory as possible in the general case.
-                  if @resource.sort? or not @resource[:unique].eql?(:false) then
+                unless clean_line(line).nil?
+		              # This is a bit hackish, but it would be nice to keep as much
+		              # of the file out of memory as possible in the general case.
+                  if @resource.sort? || !@resource[:unique].eql?(:false)
                     input_lines.push(line)
                   else
-		    f.puts(line)
+                    f.puts(line)
                   end
                 end
 
               end
 
-              if not @resource.sort? and @resource[:unique].eql?(:false) then
+              if !@resource.sort? && @resource[:unique].eql?(:false)
                 # Separate the files by the specified delimiter.
                 f.seek(-1, IO::SEEK_END)
-                if f.getc.chr.eql?("\n") then
+                if f.getc.chr.eql?("\n")
                   f.seek(-1, IO::SEEK_END)
                   f.print(String(@resource[:file_delimiter]))
                 end
@@ -69,19 +69,13 @@ Puppet::Type.type(:concat_build ).provide :concat_build do
           end
         end
 
-        if not input_lines.empty? then
-          if @resource.sort? then
-            input_lines = input_lines.sort_by{ |k| human_sort(k) }
-          end
-          if not @resource[:unique].eql?(:false) then
-            if @resource[:unique].eql?(:uniq) then
+        unless input_lines.empty?
+          input_lines = input_lines.sort_by{ |k| human_sort(k) } if @resource.sort?
+          unless @resource[:unique].eql?(:false)
+            if @resource[:unique].eql?(:uniq)
               require 'enumerator'
               input_lines = input_lines.enum_with_index.map { |x,i|
-                if x.eql?(input_lines[i+1]) then
-                  nil
-                else
-                  x
-                end
+                x.eql?(input_lines[i+1]) ? nil : x
               }.compact
             else
               input_lines = input_lines.uniq
@@ -93,7 +87,7 @@ Puppet::Type.type(:concat_build ).provide :concat_build do
           # Ensure that the end of the file is a '\n'
           f.seek(-(String(@resource[:file_delimiter]).length), IO::SEEK_END)
           curpos = f.pos
-          if not f.getc.chr.eql?("\n") then
+          unless f.getc.chr.eql?("\n")
             f.seek(curpos)
             f.print("\n")
           end
@@ -105,19 +99,19 @@ Puppet::Type.type(:concat_build ).provide :concat_build do
       rescue Exception => e
         fail Puppet::Error, e
       end
-    elsif File.directory?("/var/lib/puppet/concat/fragments/#{@resource[:name]}") and build then
+    elsif File.directory?(fragments_dir) && build
       # This time for real - move the built file into the fragments dir
-      FileUtils.touch("/var/lib/puppet/concat/fragments/#{@resource[:name]}/.~concat_fragments")
-      if @resource[:target] and check_onlyif then
+      FileUtils.touch(File.join(fragemnts_dir,'.~concat_fragments'))
+      if @resource[:target] && check_onlyif
         debug "Copying /var/lib/puppet/concat/output/#{@resource[:name]}.out to #{@resource[:target]}"
         FileUtils.cp("/var/lib/puppet/concat/output/#{@resource[:name]}.out", @resource[:target])
-      elsif @resource[:target] then
+      elsif @resource[:target]
         debug "Not copying to #{@resource[:target]}, 'onlyif' check failed"
-      elsif @resource[:onlyif] then
+      elsif @resource[:onlyif]
         debug "Specified 'onlyif' without 'target', ignoring."
       end
-    elsif not @resource.quiet? then
-      fail Puppet::Error, "The fragments directory at '/var/lib/puppet/concat/fragments/#{@resource[:name]}' does not exist!"
+    elsif !@resource.quiet?
+      fail Puppet::Error, "The fragments directory at '#{fragments_dir}' does not exist!"
     end
   end
 
@@ -135,38 +129,23 @@ Puppet::Type.type(:concat_build ).provide :concat_build do
   end
 
   def check_onlyif
-    success = true
-
-    if @resource[:onlyif] then
-      cmds = [@resource[:onlyif]].flatten
-      cmds.each do |cmd|
-        return false unless check_command(cmd)
-      end
-    end
-
-    success
+    @resource[:onlyif].nil? || [*@resource[:onlyif]].all?{ |cmd| check_command(cmd) }
   end
 
   def clean_line(line)
     newline = nil
-    if Array(@resource[:clean_whitespace]).flatten.include?('leading') then
-      line.sub!(/\s*$/, '')
-    end
-    if Array(@resource[:clean_whitespace]).flatten.include?('trailing') then
-      line.sub!(/^\s*/, '')
-    end
-    if not (Array(@resource[:clean_whitespace]).flatten.include?('lines') and line =~ /^\s*$/) then
-      newline = line
-    end
-    if @resource[:clean_comments] and line =~ /^#{@resource[:clean_comments]}/ then
-      newline = nil
-    end
+    line.sub!(/\s*$/, '') if [*@resource[:clean_whitespace]].include?('leading')
+    line.sub!(/^\s*/, '') if [*@resource[:clean_whitespace]].include?('trailing')
+
+    newline = line unless [*@resource[:clean_whitespace]].include?('lines') && line =~ /^\s*$/
+    newline = nil if @resource[:clean_comments] && line =~ /^#{@resource[:clean_comments]}/
+
     newline
   end
 
   def human_sort(obj)
     # This regex taken from http://www.bofh.org.uk/2007/12/16/comprehensible-sorting-in-ruby
-    obj.to_s.split(/((?:(?:^|\s)[-+])?(?:\.\d+|\d+(?:\.\d+?(?:[eE]\d+)?(?:$|(?![eE\.])))?))/ms).map { |v| Float(v) rescue v.downcase}
+    obj.to_s.split(/((?:(?:^|\s)[-+])?(?:\.\d+|\d+(?:\.\d+?(?:[eE]\d+)?(?:$|(?![eE\.])))?))/ms).map { |v| Float(v) rescue v.downcase }
   end
 
 end

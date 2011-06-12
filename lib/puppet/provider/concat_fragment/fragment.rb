@@ -16,26 +16,24 @@
 # You should have received a copy of the GNU General Public License along with
 # this program.  If not, see <http://www.gnu.org/licenses/>.
 #
-Puppet::Type.type(:concat_fragment).provide :concat_fragment do
+Puppet::Type.type(:concat_fragment).provide(:concat_fragment) do
   require 'fileutils'
 
   desc "concat_fragment provider"
 
   def create
-    begin
-      group, fragment = @resource[:name].split('+',2)
+    group, fragment = @resource[:name].split('+',2)
 
-      fragments_dir = File.join('/var/lib/puppet/concat/fragments',group)
+    fragments_dir = File.join('/var/lib/puppet/concat/fragments',group)
 
-      if File.file?(File.join(fragments_dir,'.~concat_fragments')) then
-        debug "Purging #{fragments_dir}!"
-        FileUtils.rm_rf(fragments_dir)
-      end
-
-      FileUtils.mkdir_p(fragments_dir)
-      File.open(File.join(fragments_dir,fragment), "w"){|f| f << @resource[:content] }
-    rescue Exception => e
-      fail Puppet::Error, e
+    if File.file?(File.join(fragments_dir,'.~concat_fragments'))
+      debug "Purging #{fragments_dir}!"
+      FileUtils.rm_rf(fragments_dir)
     end
+
+    FileUtils.mkdir_p(fragments_dir)
+    File.open(File.join(fragments_dir,fragment), "w"){|f| f << @resource[:content] }
+  rescue Exception => e
+    fail Puppet::Error, e
   end
 end

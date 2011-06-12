@@ -33,7 +33,7 @@ Puppet::Type.newtype(:concat_build) do
 
   def validatecmd(cmd)
     exe = extractexe(cmd)
-    fail Puppet::Error, "'#{cmd}' is unqualifed" if File.expand_path(exe) != exe
+    fail Puppet::Error, "'#{cmd}' is unqualifed" unless File.expand_path(exe) == exe
   end
 
   newparam(:clean_comments) do
@@ -45,16 +45,17 @@ Puppet::Type.newtype(:concat_build) do
           output to not contain any blank lines. 'all' is equivalent to 
           [leading, trailing, lines]"
     munge do |value|
-      [value].flatten!
-      if value.include?('all') then
-        return ['leading', 'trailing', 'lines']
+      value = [*value]
+      if value.include?('all')
+        ['leading', 'trailing', 'lines']
+      else
+        value.uniq
       end
-      [value].flatten.uniq
     end
 
     validate do |value|
-      [value].flatten!
-      if value.include?('none') and value.uniq.length > 1 then
+      value = [*value]
+      if value.include?('none') && value.uniq.length > 1
         fail Puppet::Error, "You cannot specify 'none' with any other options"
       end
     end
@@ -81,15 +82,13 @@ Puppet::Type.newtype(:concat_build) do
   newparam(:onlyif) do
     desc "Copy file to target only if this command exits with status '0'"
     validate do |cmds|
-      [cmds].flatten! 
-
-      cmds.each do |cmd|
+      [*cmds].each do |cmd|
         @resource.validatecmd(cmd)
       end
     end
 
     munge do |cmds|
-      [cmds].flatten
+      [*cmds]
     end
   end
 
@@ -120,7 +119,7 @@ Puppet::Type.newtype(:concat_build) do
   newparam(:target) do
     desc "Fully qualified path to copy output file to"
     validate do |path|
-      unless path =~ /^\/$/ or path =~ /^\/[^\/]/
+      unless path =~ /^\/$/ || path =~ /^\/[^\/]/
         fail Puppet::Error, "File paths must be fully qualified, not '#{path}'"
       end
     end
@@ -157,7 +156,7 @@ Puppet::Type.newtype(:concat_build) do
     defaultto ["*"]
 
     def retrieve
-      return resource[:order].join(',')
+      resource[:order].join(',')
     end
 
     def insync?(is)
@@ -176,7 +175,7 @@ Puppet::Type.newtype(:concat_build) do
     end
 
     def change_to_s(currentvalue, newvalue)
-      "#{[newvalue].flatten.join(',')} used for ordering"
+      "#{[*newvalue].join(',')} used for ordering"
     end
   end
 
@@ -184,10 +183,8 @@ Puppet::Type.newtype(:concat_build) do
     req = []
     # resource contains all concat_build resources from the catalog that are
     # children of this concat_build
-    resource = catalog.resources.find_all { |r| r.is_a?(Puppet::Type.type(:concat_build)) and r[:parent_build] and Array(r[:parent_build]).flatten.include?(self[:name]) }
-    if not resource.empty? then
-      req << resource
-    end
+    resources = catalog.resources.find_all { |r| r.is_a?(Puppet::Type.type(:concat_build)) && r[:parent_build] && [*r[:parent_build]].include?(self[:name]) }
+    req << resources unless resources.empty?
     req.flatten!
     req.each { |r| debug "Autorequiring #{r}" }
     req
@@ -197,35 +194,32 @@ Puppet::Type.newtype(:concat_build) do
     req = []
     # resource contains all concat_fragment resources from the catalog that
     # belog to this concat_build
-    resource = catalog.resources.find_all { |r| r.is_a?(Puppet::Type.type(:concat_fragment)) and r[:name] =~ /^#{self[:name]}\+.+/ }
-    if not resource.empty? then
+    resource = catalog.resources.find_all { |r| r.is_a?(Puppet::Type.type(:concat_fragment)) && r[:name] =~ /^#{self[:name]}\+.+/ }
+    if !resource.empty?
       req << resource
-    elsif not self.quiet? then
+    elsif !self.quiet?
       err "No fragments specified for group #{self[:name]}!"
     end
     # clean up the fragments directory for this build if there are no fragments
     # in the catalog
-    if resource.empty? and File.directory?("/var/lib/puppet/concat/fragments/#{self[:name]}") then
+    if resource.empty? && File.directory?("/var/lib/puppet/concat/fragments/#{self[:name]}")
       FileUtils.rm_rf("/var/lib/puppet/concat/fragments/#{self[:name]}")
     end
-    if self[:parent_build] then
+    if self[:parent_build]
       found_parent = false
-      Array(self[:parent_build]).flatten.each do |parent_build|
+      parent_builds = [*self[:parent_build]]
+      parent_builds.each do |parent_build|
         # Checks to see if there is a concat_build for each parent_build specified
-        if not catalog.resources.find { |r| r.is_a?(Puppet::Type.type(:concat_build)) and r[:name].eql?(parent_build)}.nil? then
+        if !catalog.resources.any? { |r| r.is_a?(Puppet::Type.type(:concat_build)) && r[:name].eql?(parent_build)}
           found_parent = true
-        elsif not self.quiet? then
+        elsif !self.quiet?
           warning "No concat_build found for parent_build #{parent_build}"
         end
         # frags contains all concat_fragment resources for the parent concat_build
-        frags = catalog.resources.find_all { |r| r.is_a?(Puppet::Type.type(:concat_fragment)) and r[:name] =~ /^#{parent_build}\+.+/ }
-        if not frags.empty? then
-          req << frags
-        end
+        frags = catalog.resources.find_all { |r| r.is_a?(Puppet::Type.type(:concat_fragment)) && r[:name] =~ /^#{parent_build}\+.+/ }
+        req << frags unless frags.empty?
       end
-      if not found_parent then
-        err "No concat_build found for any of #{Array(self[:parent_build]).flatten.join(",")}"
-      end
+      err "No concat_build found for any of #{parent_builds.join(",")}" unless found_parent
     end
     req.flatten!
     req.each { |r| debug "Autorequiring #{r}" }

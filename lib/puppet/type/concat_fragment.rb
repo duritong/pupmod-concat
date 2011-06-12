@@ -25,23 +25,17 @@ Puppet::Type.newtype(:concat_fragment) do
   newproperty(:content) do
 
     def retrieve
-      return resource[:content]
+      resource[:content]
     end
 
     def insync?(is)
-      group = @resource[:name].split('+').first
-      fragment = @resource[:name].split('+')[1..-1].join('+')
+      group, fragment = @resource[:name].split('+',2)
       frag_file = "/var/lib/puppet/concat/fragments/#{group}/#{fragment}"
 
-      if File.exist?(frag_file)
-        data = File.read(frag_file)
-        if data == @resource[:content] then
+      if result = File.exist?(frag_file) && (File.read(frag_file) == @resource[:content])
           debug "Disk contents differ from resource content for #{@resource[:name]}"
-          return true
-        end
-      else
-        return false
       end
+      result
     end
 
     def sync
@@ -65,7 +59,7 @@ Puppet::Type.newtype(:concat_fragment) do
   # has been compiled. This checks to see if we have a concat_build specified
   # for our particular concat_fragment group.
   autorequire(:file) do
-    if catalog.resources.find_all { |r| r.is_a?(Puppet::Type.type(:concat_build)) and r[:name] == self[:name].split('+').first }.empty? then
+    if catalog.resources.none?{ |r| r.is_a?(Puppet::Type.type(:concat_build)) && r[:name] == self[:name].split('+').first }
       err "No 'concat_build' specified for group #{self[:name].split('+').first}!"
     end
     ""
