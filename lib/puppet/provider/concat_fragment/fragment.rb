@@ -24,7 +24,7 @@ Puppet::Type.type(:concat_fragment).provide(:concat_fragment) do
   def create
     group, fragment = @resource[:name].split('+',2)
 
-    fragments_dir = File.join('/var/lib/puppet/concat/fragments',group)
+    fragments_dir = File.join(Facter.value(:concat_basedir),'fragments',group)
 
     if File.file?(File.join(fragments_dir,'.~concat_fragments'))
       debug "Purging #{fragments_dir}!"

@@ -19,5 +19,6 @@
 module Puppet::Parser::Functions
     newfunction(:fragmentdir, :type => :rvalue, :doc => "Returns the fragment directory for a given concat build.") do |args|
         "/var/lib/puppet/concat/fragments/#{args}"
+        File.join(lookupvar('concat_basedir'),'fragments',args.first)
     end
 end

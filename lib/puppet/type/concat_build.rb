@@ -17,10 +17,9 @@
 # this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-include Puppet::Util::Diff
-
 Puppet::Type.newtype(:concat_build) do
   @doc = "Build file from fragments"
+  require 'puppet/util/diff'
 
   def extractexe(cmd)
     # easy case: command was quoted
@@ -160,18 +159,22 @@ Puppet::Type.newtype(:concat_build) do
     end
 
     def insync?(is)
-      return false unless File.exists?(@resource[:target])
-
       # Build the temporary file, and then diff it against the actual one
-      provider.build_file(false)
-      diffs = diff(@resource[:target],"/var/lib/puppet/concat/output/#{@resource[:name]}.out")
-      puts diffs unless (result = diffs.empty?)
-      result
+      provider.build_file
+
+      if File.exists?(@resource[:target])
+        output_file = File.join(Facter.value(:concat_basedir),"#{@resource[:name]}.out")
+        diffs = Puppet::Util::Diff.diff(@resource[:target],output_file)
+        puts diffs unless (result = diffs.empty?)
+        result
+      else
+        false
+      end
     end
 
     def sync
       # Move the tempfile into place
-      provider.build_file(true)
+      provider.copy_file
     end
 
     def change_to_s(currentvalue, newvalue)
@@ -202,9 +205,9 @@ Puppet::Type.newtype(:concat_build) do
     end
     # clean up the fragments directory for this build if there are no fragments
     # in the catalog
-    if resource.empty? && File.directory?("/var/lib/puppet/concat/fragments/#{self[:name]}")
-      FileUtils.rm_rf("/var/lib/puppet/concat/fragments/#{self[:name]}")
-    end
+    fragments_dir = File.join(Facter.value(:concat_basedir),"fragments",self[:name])
+    FileUtils.rm_rf(fragments_dir) if resource.empty? && File.directory?(fragments_dir)
+
     if self[:parent_build]
       found_parent = false
       parent_builds = [*self[:parent_build]]

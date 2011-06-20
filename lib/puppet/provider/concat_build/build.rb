@@ -21,101 +21,100 @@ Puppet::Type.type(:concat_build ).provide(:concat_build) do
 
   desc "concat_build provider"
 
-  def build_file(build = false)
-    fragments_dir = "/var/lib/puppet/concat/fragments/#{@resource[:name]}"
-    if File.directory?(fragments_dir) && !build
-      # Just diff'ing - build the file but don't move it yet
-      begin
-        FileUtils.mkdir_p("/var/lib/puppet/concat/output")
+  def build_file
+    FileUtils.mkdir_p(output_dir) unless File.directory?(output_dir)
+    fail Puppet::Error, "The fragments directory at '#{fragments_dir}' does not exist!" if !File.directory?(fragments_dir) && !@resource.quiet?
 
-        f = File.open("/var/lib/puppet/concat/output/#{@resource[:name]}.out", "w+")
-        input_lines = []
-        Dir.chdir(fragments_dir) do
-          [*@resource[:order]].each do |pattern|
-            Dir.glob(pattern).sort_by{ |k| human_sort(k) }.each do |file|
+    f = File.open(File.join(output_dir,"#{@resource[:name]}.out"), "w+")
+    input_lines = []
+    Dir.chdir(fragments_dir) do
+      [*@resource[:order]].each do |pattern|
+        Dir.glob(pattern).sort_by{ |k| human_sort(k) }.each do |file|
 
-              prev_line = nil
-              File.open(file).each do |line|
+          prev_line = nil
+          File.open(file).each do |line|
 
-                if @resource.squeeze_blank? && line =~ /^\s*$/
-                  if prev_line == :whitespace
-                    next
-                  else
-                     prev_line = :whitespace
-                  end
-                end
+            if @resource.squeeze_blank? && line =~ /^\s*$/
+              next if prev_line == :whitespace
+              prev_line = :whitespace
+            end
 
-                unless clean_line(line).nil?
-		              # This is a bit hackish, but it would be nice to keep as much
-		              # of the file out of memory as possible in the general case.
-                  if @resource.sort? || !@resource[:unique].eql?(:false)
-                    input_lines.push(line)
-                  else
-                    f.puts(line)
-                  end
-                end
-
+            unless clean_line(line).nil?
+		          # This is a bit hackish, but it would be nice to keep as much
+		          # of the file out of memory as possible in the general case.
+              if @resource.sort? || !@resource[:unique].eql?(:false)
+                input_lines.push(line)
+              else
+                f.puts(line)
               end
-
-              if !@resource.sort? && @resource[:unique].eql?(:false)
-                # Separate the files by the specified delimiter.
-                f.seek(-1, IO::SEEK_END)
-                if f.getc.chr.eql?("\n")
-                  f.seek(-1, IO::SEEK_END)
-                  f.print(String(@resource[:file_delimiter]))
-                end
-              end
+            end
+          end
+          if !@resource.sort? && @resource[:unique].eql?(:false)
+            # Separate the files by the specified delimiter.
+            f.seek(-1, IO::SEEK_END)
+            if f.getc.chr.eql?("\n")
+              f.seek(-1, IO::SEEK_END)
+              f.print(String(@resource[:file_delimiter]))
             end
           end
         end
+      end
+    end
 
-        unless input_lines.empty?
-          input_lines = input_lines.sort_by{ |k| human_sort(k) } if @resource.sort?
-          unless @resource[:unique].eql?(:false)
-            if @resource[:unique].eql?(:uniq)
-              require 'enumerator'
-              input_lines = input_lines.enum_with_index.map { |x,i|
-                x.eql?(input_lines[i+1]) ? nil : x
-              }.compact
-            else
-              input_lines = input_lines.uniq
-            end
-          end
-
-          f.puts(input_lines.join(@resource[:file_delimiter]))
+    unless input_lines.empty?
+      input_lines = input_lines.sort_by{ |k| human_sort(k) } if @resource.sort?
+      unless @resource[:unique].eql?(:false)
+        if @resource[:unique].eql?(:uniq)
+          require 'enumerator'
+          input_lines = input_lines.enum_with_index.map { |x,i|
+            x.eql?(input_lines[i+1]) ? nil : x
+          }.compact
         else
-          # Ensure that the end of the file is a '\n'
-          f.seek(-(String(@resource[:file_delimiter]).length), IO::SEEK_END)
-          curpos = f.pos
-          unless f.getc.chr.eql?("\n")
-            f.seek(curpos)
-            f.print("\n")
-          end
-          f.truncate(f.pos)
+          input_lines = input_lines.uniq
         end
-
-        f.close
-
-      rescue Exception => e
-        fail Puppet::Error, e
       end
-    elsif File.directory?(fragments_dir) && build
-      # This time for real - move the built file into the fragments dir
-      FileUtils.touch(File.join(fragemnts_dir,'.~concat_fragments'))
-      if @resource[:target] && check_onlyif
-        debug "Copying /var/lib/puppet/concat/output/#{@resource[:name]}.out to #{@resource[:target]}"
-        FileUtils.cp("/var/lib/puppet/concat/output/#{@resource[:name]}.out", @resource[:target])
-      elsif @resource[:target]
-        debug "Not copying to #{@resource[:target]}, 'onlyif' check failed"
-      elsif @resource[:onlyif]
-        debug "Specified 'onlyif' without 'target', ignoring."
+
+      f.puts(input_lines.join(@resource[:file_delimiter]))
+    else
+      # Ensure that the end of the file is a '\n'
+      f.seek(-(String(@resource[:file_delimiter]).length), IO::SEEK_END)
+      curpos = f.pos
+      unless f.getc.chr.eql?("\n")
+        f.seek(curpos)
+        f.print("\n")
       end
-    elsif !@resource.quiet?
-      fail Puppet::Error, "The fragments directory at '#{fragments_dir}' does not exist!"
+      f.truncate(f.pos)
+    end
+
+    f.close
+
+  rescue Exception => e
+    fail Puppet::Error, e
+  end
+  
+  def copy_file
+    # This time for real - move the built file into the fragments dir
+    FileUtils.touch(File.join(fragments_dir,'.~concat_fragments'))
+    if @resource[:target] && check_onlyif
+      src = File.join(output_dir,"#{@resource[:name]}.out")
+      debug "Copying #{src} to #{@resource[:target]}"
+      FileUtils.cp(src, @resource[:target])
+    elsif @resource[:target]
+      debug "Not copying to #{@resource[:target]}, 'onlyif' check failed"
+    elsif @resource[:onlyif]
+      debug "Specified 'onlyif' without 'target', ignoring."
     end
   end
 
-  private 
+  private
+
+  def fragments_dir
+    @fragments_dir ||= File.join(Facter.value(:concat_basedir),"fragments",@resource[:name])
+  end
+
+  def output_dir
+    @output_dir ||= File.join(Facter.value(:concat_basedir),"output")
+  end
 
   # Return true if the command returns 0.
   def check_command(value)
