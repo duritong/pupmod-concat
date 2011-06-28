@@ -17,8 +17,6 @@
 # this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-include Puppet::Util::Diff
-
 Puppet::Type.newtype(:concat_fragment) do
   @doc = "Create a concat fragment"
 
@@ -29,17 +27,10 @@ Puppet::Type.newtype(:concat_fragment) do
     end
 
     def insync?(is)
-      group, fragment = @resource[:name].split('+',2)
-      frag_file = "/var/lib/puppet/concat/fragments/#{group}/#{fragment}"
-
-      if result = File.exist?(frag_file) && (File.read(frag_file) == @resource[:content])
-          debug "Disk contents differ from resource content for #{@resource[:name]}"
-      end
-      result
+      true
     end
 
     def sync
-      provider.create
     end
 
     def change_to_s(currentvalue, newvalue)
@@ -62,10 +53,38 @@ Puppet::Type.newtype(:concat_fragment) do
     if catalog.resources.none?{ |r| r.is_a?(Puppet::Type.type(:concat_build)) && r[:name] == self[:name].split('+').first }
       err "No 'concat_build' specified for group #{self[:name].split('+').first}!"
     end
-    ""
+    [ my_fragments_dir ]
   end
-
+  
   validate do
     fail Puppet::Error, "You must specify content" unless self[:content]
+  end
+  
+  def frag_file
+    @frag_file ||= File.join(Facter.value(:concat_basedir),"fragments",self[:name].split('+',2))
+  end
+  
+  def generate
+    resources = []
+    unless catalog.resource(:file, my_fragments_dir)
+      resources << Puppet::Type.type(:file).new(
+        :name => my_fragments_dir,
+        :ensure => 'directory',
+        :purge => true,
+        :recurse => true,
+        :force => true,
+        :mode => "0600"
+      )
+    end
+    resources << Puppet::Type.type(:file).new(
+      :name => frag_file,
+      :content => self[:content],
+      :before => "Concat_build[#{self[:name].split('+').first}]",
+      :mode => "0600"
+    )
+  end
+  
+  def my_fragments_dir
+    @my_fragments_dir ||= File.dirname(frag_file)
   end
 end

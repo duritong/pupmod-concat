@@ -19,7 +19,6 @@
 
 Puppet::Type.newtype(:concat_build) do
   @doc = "Build file from fragments"
-  require 'puppet/util/diff'
 
   def extractexe(cmd)
     # easy case: command was quoted
@@ -161,15 +160,7 @@ Puppet::Type.newtype(:concat_build) do
     def insync?(is)
       # Build the temporary file, and then diff it against the actual one
       provider.build_file
-
-      if File.exists?(@resource[:target])
-        output_file = File.join(Facter.value(:concat_basedir),"#{@resource[:name]}.out")
-        diffs = Puppet::Util::Diff.diff(@resource[:target],output_file)
-        puts diffs unless (result = diffs.empty?)
-        result
-      else
-        false
-      end
+      File.exists?(@resource[:target]) && diff_file
     end
 
     def sync
@@ -183,50 +174,109 @@ Puppet::Type.newtype(:concat_build) do
   end
 
   autorequire(:concat_build) do
-    req = []
     # resource contains all concat_build resources from the catalog that are
     # children of this concat_build
     resources = catalog.resources.find_all { |r| r.is_a?(Puppet::Type.type(:concat_build)) && r[:parent_build] && [*r[:parent_build]].include?(self[:name]) }
-    req << resources unless resources.empty?
-    req.flatten!
-    req.each { |r| debug "Autorequiring #{r}" }
-    req
+    resources.each { |r| debug "Autorequiring #{r}" }
+    resources
   end
 
   autorequire(:concat_fragment) do
-    req = []
     # resource contains all concat_fragment resources from the catalog that
-    # belog to this concat_build
-    resource = catalog.resources.find_all { |r| r.is_a?(Puppet::Type.type(:concat_fragment)) && r[:name] =~ /^#{self[:name]}\+.+/ }
-    if !resource.empty?
-      req << resource
-    elsif !self.quiet?
+    # belong to this concat_build
+    resources = catalog.resources.find_all { |r| r.is_a?(Puppet::Type.type(:concat_fragment)) && r[:name] =~ /^#{self[:name]}\+.+/ }
+    if resources.empty? && !self.quiet?
       err "No fragments specified for group #{self[:name]}!"
     end
-    # clean up the fragments directory for this build if there are no fragments
-    # in the catalog
-    fragments_dir = File.join(Facter.value(:concat_basedir),"fragments",self[:name])
-    FileUtils.rm_rf(fragments_dir) if resource.empty? && File.directory?(fragments_dir)
 
     if self[:parent_build]
       found_parent = false
       parent_builds = [*self[:parent_build]]
       parent_builds.each do |parent_build|
         # Checks to see if there is a concat_build for each parent_build specified
-        if !catalog.resources.any? { |r| r.is_a?(Puppet::Type.type(:concat_build)) && r[:name].eql?(parent_build)}
-          found_parent = true
-        elsif !self.quiet?
+        found_parent = !catalog.resources.any? { |r| r.is_a?(Puppet::Type.type(:concat_build)) && r[:name].eql?(parent_build)}
+        if found_parent && !self.quiet?
           warning "No concat_build found for parent_build #{parent_build}"
         end
         # frags contains all concat_fragment resources for the parent concat_build
         frags = catalog.resources.find_all { |r| r.is_a?(Puppet::Type.type(:concat_fragment)) && r[:name] =~ /^#{parent_build}\+.+/ }
-        req << frags unless frags.empty?
+        resources.push(*frags)
       end
       err "No concat_build found for any of #{parent_builds.join(",")}" unless found_parent
     end
-    req.flatten!
-    req.each { |r| debug "Autorequiring #{r}" }
-    req
+    resources.each { |r| debug "Autorequiring #{r}" }
+    resources
+  end
+  
+  autorequire(:file) do
+    [ Facter.value(:concat_basedir), fragments_dir, output_dir, my_fragments_dir ]
   end
 
+  def diff_file
+    output_file = File.join(Facter.value(:concat_basedir),"#{@resource[:name]}.out")
+    require 'puppet/util/diff'
+    diffs = Puppet::Util::Diff.diff(@resource[:target],output_file)
+    puts diffs unless (result = diffs.empty?)
+    result
+  end
+  
+  def generate
+    should = self.should(:ensure) || :present
+    resources = []
+    if (should == :present)
+      unless catalog.resource(:file, Facter.value(:concat_basedir))
+        resources << Puppet::Type.type(:file).new(
+          :name => Facter.value(:concat_basedir),
+          :ensure => 'directory',
+          :purge => true,
+          :recurse => true,
+          :force => true,
+          :mode => "0600"
+        )
+      end
+      unless catalog.resource(:file, fragments_dir)
+        resources << Puppet::Type.type(:file).new(
+          :name => fragments_dir,
+          :ensure => 'directory',
+          :purge => true,
+          :recurse => true,
+          :force => true,
+          :mode => "0600"
+        )
+      end
+      unless catalog.resource(:file, output_dir)
+        resources << Puppet::Type.type(:file).new(
+          :name => output_dir,
+          :ensure => 'directory',
+          :purge => true,
+          :recurse => true,
+          :force => true,
+          :mode => "0600"
+        )
+      end
+      unless catalog.resource(:file, my_fragments_dir)
+        resources << Puppet::Type.type(:file).new(
+          :name => my_fragments_dir,
+          :ensure => 'directory',
+          :purge => true,
+          :recurse => true,
+          :force => true,
+          :mode => "0600"
+        )
+      end
+    end
+    resources
+  end
+  
+  def my_fragments_dir
+    @my_fragments_dir ||= File.join(fragments_dir,self[:name])
+  end
+  
+  def output_dir
+    @output_dir ||= File.join(Facter.value(:concat_basedir),'output')
+  end
+  
+  def fragments_dir
+    @fragments_dir ||= File.join(Facter.value(:concat_basedir),'fragments')
+  end
 end

@@ -22,9 +22,6 @@ Puppet::Type.type(:concat_build ).provide(:concat_build) do
   desc "concat_build provider"
 
   def build_file
-    FileUtils.mkdir_p(output_dir) unless File.directory?(output_dir)
-    fail Puppet::Error, "The fragments directory at '#{fragments_dir}' does not exist!" if !File.directory?(fragments_dir) && !@resource.quiet?
-
     f = File.open(File.join(output_dir,"#{@resource[:name]}.out"), "w+")
     input_lines = []
     Dir.chdir(fragments_dir) do
@@ -93,8 +90,6 @@ Puppet::Type.type(:concat_build ).provide(:concat_build) do
   end
   
   def copy_file
-    # This time for real - move the built file into the fragments dir
-    FileUtils.touch(File.join(fragments_dir,'.~concat_fragments'))
     if @resource[:target] && check_onlyif
       src = File.join(output_dir,"#{@resource[:name]}.out")
       debug "Copying #{src} to #{@resource[:target]}"

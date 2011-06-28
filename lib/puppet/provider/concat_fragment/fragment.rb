@@ -21,19 +21,4 @@ Puppet::Type.type(:concat_fragment).provide(:concat_fragment) do
 
   desc "concat_fragment provider"
 
-  def create
-    group, fragment = @resource[:name].split('+',2)
-
-    fragments_dir = File.join(Facter.value(:concat_basedir),'fragments',group)
-
-    if File.file?(File.join(fragments_dir,'.~concat_fragments'))
-      debug "Purging #{fragments_dir}!"
-      FileUtils.rm_rf(fragments_dir)
-    end
-
-    FileUtils.mkdir_p(fragments_dir)
-    File.open(File.join(fragments_dir,fragment), "w"){|f| f << @resource[:content] }
-  rescue Exception => e
-    fail Puppet::Error, e
-  end
 end
